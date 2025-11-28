@@ -158,6 +158,7 @@ pub struct App {
     view_year: i32,
     view_month: u32,
     selected_day: u32,
+    jump_prompt: Option<JumpPrompt>,
 }
 
 impl App {
@@ -168,6 +169,7 @@ impl App {
             view_month: today.month(),
             selected_day: today.day(),
             today,
+            jump_prompt: None,
         }
     }
 
@@ -314,6 +316,84 @@ impl App {
             self.view_year = max_year;
         }
     }
+
+    pub fn jump_prompt_active(&self) -> bool {
+        self.jump_prompt.is_some()
+    }
+
+    pub fn jump_prompt_view(&self) -> Option<JumpPromptView<'_>> {
+        self.jump_prompt.as_ref().map(|prompt| JumpPromptView {
+            input: &prompt.buffer,
+            error: prompt.error.as_deref(),
+        })
+    }
+
+    pub fn start_jump_prompt(&mut self) {
+        self.jump_prompt = Some(JumpPrompt::default());
+    }
+
+    pub fn cancel_jump_prompt(&mut self) {
+        self.jump_prompt = None;
+    }
+
+    pub fn push_jump_input(&mut self, ch: char) {
+        if let Some(prompt) = self.jump_prompt.as_mut() {
+            if prompt.buffer.len() >= 16 {
+                return;
+            }
+            if ch.is_ascii_digit() || matches!(ch, '-' | '/' | '.' | ' ') {
+                prompt.buffer.push(ch);
+                prompt.error = None;
+            }
+        }
+    }
+
+    pub fn pop_jump_input(&mut self) {
+        if let Some(prompt) = self.jump_prompt.as_mut() {
+            prompt.buffer.pop();
+            prompt.error = None;
+        }
+    }
+
+    pub fn confirm_jump_prompt(&mut self) {
+        let Some(prompt) = self.jump_prompt.as_mut() else {
+            return;
+        };
+        if let Some(date) = parse_jump_input(&prompt.buffer) {
+            if date.year() < lunar::MIN_YEAR || date.year() > lunar::max_supported_year() {
+                prompt.error = Some("超出支持范围".to_string());
+                return;
+            }
+            self.view_year = date.year();
+            self.view_month = date.month();
+            self.selected_day = date.day();
+            self.jump_prompt = None;
+        } else {
+            prompt.error = Some("无法识别日期格式".to_string());
+        }
+    }
+}
+
+#[derive(Default)]
+struct JumpPrompt {
+    buffer: String,
+    error: Option<String>,
+}
+
+pub struct JumpPromptView<'a> {
+    pub input: &'a str,
+    pub error: Option<&'a str>,
+}
+
+fn parse_jump_input(input: &str) -> Option<NaiveDate> {
+    let digits: String = input.chars().filter(|c| c.is_ascii_digit()).collect();
+    if digits.len() != 8 {
+        return None;
+    }
+    let year = digits[0..4].parse().ok()?;
+    let month = digits[4..6].parse().ok()?;
+    let day = digits[6..8].parse().ok()?;
+    NaiveDate::from_ymd_opt(year, month, day)
 }
 
 fn days_in_month(year: i32, month: u32) -> u32 {
@@ -361,7 +441,7 @@ fn lunar_statutory_holiday(lunar: Option<&lunar::LunarInfo>) -> Option<HolidayIn
     if info.festival == Some("除夕") {
         return Some(HOLIDAY_SPRING_EVE);
     }
-    if month == 1 && day <= 3 {
+    if month == 1 && day == 1 {
         return Some(HOLIDAY_SPRING_FESTIVAL);
     }
     match (month, day) {

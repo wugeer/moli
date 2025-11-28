@@ -1,5 +1,5 @@
 [package]
-name = "rataui_rili"
+name = "moli"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,3 +7,7 @@ edition = "2024"
 ratatui = "0.26"
 crossterm = "0.27"
 chrono = { version = "0.4", default-features = true, features = ["clock"] }
+dirs = "5"
+serde = { version = "1.0", features = ["derive"] }
+ron = "0.8"
+unicode-width = "0.1"

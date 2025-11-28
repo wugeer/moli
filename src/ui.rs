@@ -1,24 +1,26 @@
 use chrono::Datelike;
 use ratatui::{
     Frame,
-    layout::{Alignment, Constraint, Direction, Layout},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Paragraph, Row, Table},
+    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
 };
 
 use crate::{
-    app::{App, DayCell},
+    app::{App, DayCell, JumpPromptView},
+    config::{Action, KeyBindings},
     lunar,
 };
 
-pub fn draw(frame: &mut Frame, app: &App) {
+pub fn draw(frame: &mut Frame, app: &App, bindings: &KeyBindings) {
+    let (help_widget, help_height) = help_bar(bindings);
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
             Constraint::Min(10),
-            Constraint::Length(3),
+            Constraint::Length(help_height),
         ])
         .split(frame.size());
 
@@ -31,7 +33,10 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
     frame.render_widget(calendar(app), body[0]);
     frame.render_widget(details(app), body[1]);
-    frame.render_widget(help_bar(), chunks[2]);
+    frame.render_widget(help_widget, chunks[2]);
+    if let Some(prompt) = app.jump_prompt_view() {
+        draw_jump_prompt(frame, prompt);
+    }
 }
 
 fn header(app: &App) -> Paragraph<'_> {
@@ -49,14 +54,15 @@ fn header(app: &App) -> Paragraph<'_> {
         solar, today_text, lunar_text
     ))))
     .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL).title("RiLi"))
+    .block(Block::default().borders(Borders::ALL).title("MoLi"))
 }
 
 fn calendar(app: &App) -> Table<'_> {
     let headers = ["一", "二", "三", "四", "五", "六", "日"]
         .into_iter()
         .map(|label| {
-            Cell::from(label).style(
+            let line = Line::from(label).alignment(Alignment::Center);
+            Cell::from(line).style(
                 Style::default()
                     .fg(Color::Cyan)
                     .add_modifier(Modifier::BOLD),
@@ -88,12 +94,11 @@ fn day_cell(cell: DayCell) -> Cell<'static> {
         .or_else(|| cell.lunar.map(|info| info.display_label().to_string()))
         .unwrap_or_else(|| "--".to_string());
     let has_label = cell.holiday.is_some() || cell.solar_term.is_some() || cell.lunar.is_some();
-    let text = format!(
-        "{:>2}{}{}",
-        cell.date.day(),
-        if has_label { "\n" } else { "" },
-        label
-    );
+    let mut lines =
+        vec![Line::from(format!("{:02}", cell.date.day())).alignment(Alignment::Center)];
+    if has_label {
+        lines.push(Line::from(label).alignment(Alignment::Center));
+    }
     let mut style = if cell.is_current_month {
         Style::default()
     } else {
@@ -107,7 +112,7 @@ fn day_cell(cell: DayCell) -> Cell<'static> {
     } else if cell.is_today {
         style = style.fg(Color::Yellow).add_modifier(Modifier::BOLD);
     }
-    Cell::from(text).style(style)
+    Cell::from(lines).style(style)
 }
 
 fn details(app: &App) -> Paragraph<'_> {
@@ -153,10 +158,84 @@ fn details(app: &App) -> Paragraph<'_> {
         lines.push(Line::from("农历：超出支持范围"));
     }
 
-    Paragraph::new(lines).block(Block::default().title("详情").borders(Borders::ALL))
+    Paragraph::new(lines)
+        .block(Block::default().title("详情").borders(Borders::ALL))
+        .wrap(Wrap { trim: true })
 }
 
-fn help_bar() -> Paragraph<'static> {
-    Paragraph::new("←/→ 切换月份 · ↑/↓ 切换年份 · h/j/k/l 移动日期 · t 回到今天 · q 退出")
+fn help_bar(bindings: &KeyBindings) -> (Paragraph<'static>, u16) {
+    let prev_month = format_actions(bindings, Action::PrevMonth);
+    let next_month = format_actions(bindings, Action::NextMonth);
+    let prev_year = format_actions(bindings, Action::PrevYear);
+    let next_year = format_actions(bindings, Action::NextYear);
+    let move_left = format_actions(bindings, Action::MoveLeft);
+    let move_right = format_actions(bindings, Action::MoveRight);
+    let move_up = format_actions(bindings, Action::MoveUp);
+    let move_down = format_actions(bindings, Action::MoveDown);
+    let back_today = format_actions(bindings, Action::BackToToday);
+    let quit = format_actions(bindings, Action::Quit);
+    let jump_to = format_actions(bindings, Action::OpenJumpPrompt);
+    let lines = vec![
+        Line::from(format!(
+            "左:{} 右:{} 上:{} 下:{} · {} / {} 切换月份 · {} / {} 切换年份",
+            move_left, move_right, move_up, move_down, prev_month, next_month, prev_year, next_year
+        )),
+        Line::from(format!(
+            "{} 回到今天 · {} 跳转日期 · {} 退出 · 配置：~/.config/moli/key_bindings.ron",
+            back_today, jump_to, quit
+        )),
+    ];
+    let height = lines.len() as u16 + 2;
+    let paragraph = Paragraph::new(lines)
         .block(Block::default().borders(Borders::ALL).title("快捷键"))
+        .wrap(Wrap { trim: true });
+    (paragraph, height)
+}
+
+fn format_actions(bindings: &KeyBindings, action: Action) -> String {
+    let labels = bindings.labels_for(action);
+    if labels.is_empty() {
+        "-".into()
+    } else {
+        labels.join("/")
+    }
+}
+
+fn draw_jump_prompt(frame: &mut Frame, prompt: JumpPromptView<'_>) {
+    let area = centered_rect(60, 30, frame.size());
+    frame.render_widget(Clear, area);
+    let mut lines = vec![
+        Line::from(format!("目标日期 (YYYY-MM-DD)：{}", prompt.input)).alignment(Alignment::Left),
+        Line::from("Enter 确认 · Esc 取消").style(Style::default().fg(Color::Gray)),
+    ];
+    if let Some(err) = prompt.error {
+        lines.push(Line::from(err).style(Style::default().fg(Color::Red)));
+    }
+    let paragraph = Paragraph::new(lines)
+        .block(
+            Block::default()
+                .title("跳转到指定日期")
+                .borders(Borders::ALL),
+        )
+        .wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, area);
+}
+
+fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
+    let horizontal = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage((100 - percent_x) / 2),
+            Constraint::Percentage(percent_x),
+            Constraint::Percentage((100 - percent_x) / 2),
+        ])
+        .split(area);
+    Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage((100 - percent_y) / 2),
+            Constraint::Percentage(percent_y),
+            Constraint::Percentage((100 - percent_y) / 2),
+        ])
+        .split(horizontal[1])[1]
 }

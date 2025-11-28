@@ -1,0 +1,16 @@
+// Default MoLi key bindings. Copy to ~/.config/moli/key_bindings.ron (or set
+// MOLI_KEY_CONFIG) and tweak any list below. Each entry accepts modifiers such
+// as "Ctrl+j" or "Shift+Tab".
+(
+    quit: ["Esc", "q", "Q"],
+    move_left: ["h", "H"],
+    move_right: ["l", "L"],
+    move_up: ["k", "K"],
+    move_down: ["j", "J", "Ctrl+j"],
+    prev_month: ["Left", "Ctrl+h"],
+    next_month: ["Right", "Ctrl+l"],
+    prev_year: ["Up"],
+    next_year: ["Down"],
+    back_to_today: ["t", "T", "g+g"],
+    open_jump_prompt: ["g+d"],
+)
