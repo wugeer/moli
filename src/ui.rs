@@ -4,7 +4,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
+    widgets::{Block, BorderType, Borders, Cell, Clear, Paragraph, Row, Table, Wrap},
 };
 
 use crate::{
@@ -13,6 +13,7 @@ use crate::{
     lunar,
 };
 
+/// Main entry point for rendering the UI
 pub fn draw(frame: &mut Frame, app: &App, bindings: &KeyBindings) {
     let (help_widget, help_height) = help_bar(bindings);
     let chunks = Layout::default()
@@ -34,6 +35,7 @@ pub fn draw(frame: &mut Frame, app: &App, bindings: &KeyBindings) {
     frame.render_widget(calendar(app), body[0]);
     frame.render_widget(details(app), body[1]);
     frame.render_widget(help_widget, chunks[2]);
+    // Render the jump prompt overlay
     if let Some(prompt) = app.jump_prompt_view() {
         draw_jump_prompt(frame, prompt);
     }
@@ -54,9 +56,15 @@ fn header(app: &App) -> Paragraph<'_> {
         solar, today_text, lunar_text
     ))))
     .alignment(Alignment::Center)
-    .block(Block::default().borders(Borders::ALL).title("MoLi"))
+    .block(
+        Block::default()
+            .border_type(BorderType::Rounded)
+            .borders(Borders::ALL)
+            .title("MoLi"),
+    )
 }
 
+/// Calendar display
 fn calendar(app: &App) -> Table<'_> {
     let headers = ["一", "二", "三", "四", "五", "六", "日"]
         .into_iter()
@@ -81,22 +89,27 @@ fn calendar(app: &App) -> Table<'_> {
         })
         .collect::<Vec<_>>();
 
-    Table::new(rows, widths)
-        .header(header_row)
-        .block(Block::default().title("月历").borders(Borders::ALL))
+    Table::new(rows, widths).header(header_row).block(
+        Block::default()
+            .border_type(BorderType::Rounded)
+            .title("月历")
+            .borders(Borders::ALL),
+    )
 }
 
 fn day_cell(cell: DayCell) -> Cell<'static> {
-    let label = cell
-        .holiday
-        .map(|info| info.name.to_string())
-        .or_else(|| cell.solar_term.map(|name| name.to_string()))
-        .or_else(|| cell.lunar.map(|info| info.display_label().to_string()))
-        .unwrap_or_else(|| "--".to_string());
+    // Whether to show holiday/solar-term/lunar labels next to the date number
     let has_label = cell.holiday.is_some() || cell.solar_term.is_some() || cell.lunar.is_some();
     let mut lines =
         vec![Line::from(format!("{:02}", cell.date.day())).alignment(Alignment::Center)];
     if has_label {
+        // Label priority: holiday > solar term > lunar date
+        let label = cell
+            .holiday
+            .map(|info| info.name.to_string())
+            .or_else(|| cell.solar_term.map(|name| name.to_string()))
+            .or_else(|| cell.lunar.map(|info| info.display_label().to_string()))
+            .unwrap_or_else(|| "--".to_string());
         lines.push(Line::from(label).alignment(Alignment::Center));
     }
     let mut style = if cell.is_current_month {
@@ -106,7 +119,7 @@ fn day_cell(cell: DayCell) -> Cell<'static> {
     };
     if cell.is_selected {
         style = style
-            .bg(Color::Blue)
+            .bg(Color::Green)
             .fg(Color::Black)
             .add_modifier(Modifier::BOLD);
     } else if cell.is_today {
@@ -115,23 +128,25 @@ fn day_cell(cell: DayCell) -> Cell<'static> {
     Cell::from(lines).style(style)
 }
 
+/// Selected date detail panel
 fn details(app: &App) -> Paragraph<'_> {
     let selected = app.selected_date();
     let holiday = app.selected_holiday();
-    let mut current_line = format!(
-        "当前：{} ({:?})",
+    let holiday_suffix = holiday
+        .map(|info| format!(" · {}", info.name))
+        .unwrap_or_default();
+    let current_line = format!(
+        "当前：{} ({:?}){}",
         selected.format("%Y-%m-%d"),
-        selected.weekday()
+        selected.weekday(),
+        holiday_suffix,
     );
-    if let Some(info) = holiday {
-        current_line.push_str(&format!(" · {}", info.name));
-    }
     let mut lines = vec![Line::from(current_line)];
     let term_line = app
         .selected_solar_term()
-        .map(|name| name.to_string())
-        .unwrap_or_else(|| "-".to_string());
-    lines.push(Line::from(format!("节气：{}", term_line)));
+        .map(|name| format!("节气：{}", name))
+        .unwrap_or_else(|| "节气: -".to_string());
+    lines.push(Line::from(term_line));
     if let Some(info) = holiday {
         lines.push(Line::from(format!(
             "{}：{} - {}",
@@ -159,7 +174,12 @@ fn details(app: &App) -> Paragraph<'_> {
     }
 
     Paragraph::new(lines)
-        .block(Block::default().title("详情").borders(Borders::ALL))
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .title("详情")
+                .borders(Borders::ALL),
+        )
         .wrap(Wrap { trim: true })
 }
 
@@ -187,7 +207,12 @@ fn help_bar(bindings: &KeyBindings) -> (Paragraph<'static>, u16) {
     ];
     let height = lines.len() as u16 + 2;
     let paragraph = Paragraph::new(lines)
-        .block(Block::default().borders(Borders::ALL).title("快捷键"))
+        .block(
+            Block::default()
+                .border_type(BorderType::Rounded)
+                .borders(Borders::ALL)
+                .title("快捷键"),
+        )
         .wrap(Wrap { trim: true });
     (paragraph, height)
 }
@@ -195,15 +220,18 @@ fn help_bar(bindings: &KeyBindings) -> (Paragraph<'static>, u16) {
 fn format_actions(bindings: &KeyBindings, action: Action) -> String {
     let labels = bindings.labels_for(action);
     if labels.is_empty() {
-        "-".into()
+        "未绑定".into()
     } else {
         labels.join("/")
     }
 }
 
 fn draw_jump_prompt(frame: &mut Frame, prompt: JumpPromptView<'_>) {
-    let area = centered_rect(60, 30, frame.size());
+    // Center a 40x15 window on the screen
+    let area = centered_rect(40, 15, frame.size());
+    // Clear the window area
     frame.render_widget(Clear, area);
+    // Build prompt lines
     let mut lines = vec![
         Line::from(format!("目标日期 (YYYY-MM-DD)：{}", prompt.input)).alignment(Alignment::Left),
         Line::from("Enter 确认 · Esc 取消").style(Style::default().fg(Color::Gray)),
@@ -211,16 +239,22 @@ fn draw_jump_prompt(frame: &mut Frame, prompt: JumpPromptView<'_>) {
     if let Some(err) = prompt.error {
         lines.push(Line::from(err).style(Style::default().fg(Color::Red)));
     }
+    // Build the paragraph widget
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
+                .border_type(BorderType::Rounded)
                 .title("跳转到指定日期")
                 .borders(Borders::ALL),
         )
         .wrap(Wrap { trim: false });
+    // Render the paragraph
     frame.render_widget(paragraph, area);
 }
 
+/// Split horizontally into three parts with ratios (100 - percent_x)/2 : percent_x : (100 - percent_x)/2
+/// Take the middle part and split it vertically with ratios (100 - percent_y)/2 : percent_y : (100 - percent_y)/2
+/// Return the centered area from that middle block
 fn centered_rect(percent_x: u16, percent_y: u16, area: Rect) -> Rect {
     let horizontal = Layout::default()
         .direction(Direction::Horizontal)

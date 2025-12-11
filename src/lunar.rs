@@ -36,10 +36,10 @@ const BRANCHES: [char; 12] = [
 const ZODIAC: [char; 12] = [
     '鼠', '牛', '虎', '兔', '龙', '蛇', '马', '羊', '猴', '鸡', '狗', '猪',
 ];
-const MONTH_NAMES: [char; 12] = [
+const LUNAR_MONTH_NAMES: [char; 12] = [
     '正', '二', '三', '四', '五', '六', '七', '八', '九', '十', '冬', '腊',
 ];
-const DAY_NAMES: [&str; 30] = [
+const LUNAR_DAY_NAMES: [&str; 30] = [
     "初一", "初二", "初三", "初四", "初五", "初六", "初七", "初八", "初九", "初十", "十一", "十二",
     "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十", "廿一", "廿二", "廿三", "廿四",
     "廿五", "廿六", "廿七", "廿八", "廿九", "三十",
@@ -73,12 +73,14 @@ pub struct LunarInfo {
 
 impl LunarInfo {
     pub fn display_label(&self) -> &'static str {
-        self.festival.unwrap_or_else(|| day_name_for(self.date.day))
+        // Lunar festival name if present, otherwise the lunar day label
+        self.festival
+            .unwrap_or_else(|| lunar_day_name_for(self.date.day))
     }
 
     pub fn month_label(&self) -> String {
         let prefix = if self.date.is_leap { "闰" } else { "" };
-        format!("{}{}月", prefix, month_name_for(self.date.month))
+        format!("{}{}月", prefix, lunar_month_name_for(self.date.month))
     }
 }
 
@@ -95,6 +97,7 @@ pub fn solar_to_lunar(date: NaiveDate) -> Option<LunarInfo> {
 
     let mut year = MIN_YEAR;
     let max_year = max_supported_year();
+    // Walk forward from min_year, subtracting each lunar year's length
     while year <= max_year {
         let year_days = lunar_year_days(year) as i64;
         if offset < year_days {
@@ -117,6 +120,7 @@ pub fn solar_to_lunar(date: NaiveDate) -> Option<LunarInfo> {
             leap_days(year)
         } else {
             month_days(year, month)
+                .unwrap_or_else(|| panic!("获取{}年农历{}月天数失败", year, month))
         } as i64;
 
         if offset < days_in_month {
@@ -127,21 +131,21 @@ pub fn solar_to_lunar(date: NaiveDate) -> Option<LunarInfo> {
         if leap != 0 && month == leap as i32 && !is_leap {
             is_leap = true;
         } else {
-            if is_leap {
-                is_leap = false;
-            }
+            is_leap = false;
             month += 1;
         }
     }
 
     let day = (offset + 1) as u8;
+    // A leap month repeats a month; the festival only applies to the first occurrence
     let mut festival = if is_leap {
         None
     } else {
         lunar_festival(month as u8, day)
     };
     if !is_leap && month == 12 {
-        let last_day = month_days(year, 12);
+        let last_day =
+            month_days(year, 12).unwrap_or_else(|| panic!("获取{}年农历12月天数失败", year));
         if day == last_day {
             festival = Some("除夕");
         }
@@ -158,12 +162,14 @@ pub fn solar_to_lunar(date: NaiveDate) -> Option<LunarInfo> {
     })
 }
 
+/// Get the Heavenly Stems/Earthly Branches year label
 pub fn gan_zhi_year(year: i32) -> String {
     let stem = STEMS[((year - 4).rem_euclid(10)) as usize];
     let branch = BRANCHES[((year - 4).rem_euclid(12)) as usize];
     format!("{}{}", stem, branch)
 }
 
+/// Get the zodiac animal for the given year
 pub fn zodiac_animal(year: i32) -> char {
     ZODIAC[((year - 4).rem_euclid(12)) as usize]
 }
@@ -175,9 +181,16 @@ fn lunar_festival(month: u8, day: u8) -> Option<&'static str> {
         .map(|(_, name)| *name)
 }
 
+/// Calculate the number of days in a lunar year
 fn lunar_year_days(year: i32) -> i32 {
     let mut sum = 348; // 12 * 29
-    let info = year_info(year).unwrap_or(0);
+    let info = year_info(year).unwrap_or_else(|| {
+        panic!(
+            "month_days only supports years in {}..={}",
+            MIN_YEAR,
+            max_supported_year()
+        )
+    });
     let mut mask = 0x8000;
     while mask > 0x8 {
         if info & mask != 0 {
@@ -188,49 +201,57 @@ fn lunar_year_days(year: i32) -> i32 {
     sum + leap_days(year) as i32
 }
 
+/// Determine whether the year has a leap month, returning that month or 0 if none
 fn leap_month(year: i32) -> u8 {
-    (year_info(year).unwrap_or(0) & 0xF) as u8
+    year_info(year).map_or(0, |info| (info & 0xF) as u8)
 }
 
+/// Calculate the number of days in the leap month
 fn leap_days(year: i32) -> u8 {
-    let leap = leap_month(year);
-    if leap != 0 {
-        if year_info(year).unwrap_or(0) & 0x10000 != 0 {
+    year_info(year)
+        .filter(|info| *info & 0xF != 0)
+        .map(|info| if info & 0x10000 != 0 { 30 } else { 29 })
+        .unwrap_or(0)
+}
+
+fn lunar_month_name_for(month: u8) -> char {
+    let index = month
+        .checked_sub(1)
+        .unwrap_or_else(|| panic!("lunar_month_name_for accepts months in 1..=12"))
+        as usize;
+    LUNAR_MONTH_NAMES
+        .get(index)
+        .copied()
+        .expect("invalid month index for lunar month name")
+}
+
+fn lunar_day_name_for(day: u8) -> &'static str {
+    let index = day
+        .checked_sub(1)
+        .expect("lunar_day_name_for accepts days in 1..=30") as usize;
+    LUNAR_DAY_NAMES
+        .get(index)
+        .copied()
+        .expect("invalid day index for lunar day name")
+}
+
+fn month_days(year: i32, month: i32) -> Option<u8> {
+    assert!(
+        (MIN_YEAR..=max_supported_year()).contains(&year),
+        "month_days only supports years in {MIN_YEAR}..={}",
+        max_supported_year()
+    );
+    year_info(year).map(|info| {
+        if info & (0x10000 >> month) != 0 {
             30
         } else {
             29
         }
-    } else {
-        0
-    }
-}
-
-fn month_name_for(month: u8) -> char {
-    let index = month.saturating_sub(1) as usize;
-    MONTH_NAMES.get(index).copied().unwrap_or(MONTH_NAMES[0])
-}
-
-fn day_name_for(day: u8) -> &'static str {
-    let index = day.saturating_sub(1) as usize;
-    DAY_NAMES.get(index).copied().unwrap_or(DAY_NAMES[0])
-}
-
-fn month_days(year: i32, month: i32) -> u8 {
-    if year < MIN_YEAR || year > max_supported_year() {
-        return 29;
-    }
-    let info = year_info(year).unwrap_or(0);
-    if info & (0x10000 >> month) != 0 {
-        30
-    } else {
-        29
-    }
+    })
 }
 
 fn year_info(year: i32) -> Option<u32> {
-    if (MIN_YEAR..=max_supported_year()).contains(&year) {
-        Some(LUNAR_INFO[(year - MIN_YEAR) as usize])
-    } else {
-        None
-    }
+    (MIN_YEAR..=max_supported_year())
+        .contains(&year)
+        .then(|| LUNAR_INFO[(year - MIN_YEAR) as usize])
 }

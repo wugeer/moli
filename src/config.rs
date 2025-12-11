@@ -33,6 +33,7 @@ pub struct KeyBindings {
 }
 
 impl KeyBindings {
+    // return the label of the binding for the action
     pub fn labels_for(&self, action: Action) -> Vec<String> {
         self.labels
             .get(&action)
@@ -222,7 +223,7 @@ impl KeyPress {
         if self.modifiers.contains(KeyModifiers::SHIFT) {
             parts.push("Shift".into());
         }
-        parts.push(key_code_label(self.code));
+        parts.push(get_key_code_label(self.code));
         parts.join("+")
     }
 }
@@ -239,6 +240,7 @@ pub fn load_key_bindings() -> KeyBindings {
     KeyBindings::default()
 }
 
+/// Load key bindings from the specified path
 fn load_from_path(path: &Path) -> Option<KeyBindings> {
     let content = match fs::read_to_string(path) {
         Ok(content) => content,
@@ -247,19 +249,10 @@ fn load_from_path(path: &Path) -> Option<KeyBindings> {
             return None;
         }
     };
-    match parse_config(&content) {
-        Some(config) => Some(KeyBindings::from_config(config.into_inner())),
-        None => {
-            let patched = content.replace('\'', "\"");
-            if patched != content {
-                parse_config(&patched).map(|cfg| KeyBindings::from_config(cfg.into_inner()))
-            } else {
-                None
-            }
-        }
-    }
+    parse_config(&content).map(|config| KeyBindings::from_config(config.into_inner()))
 }
 
+/// Parse the RON configuration content
 fn parse_config(content: &str) -> Option<ConfigFile> {
     match ron::from_str(content) {
         Ok(parsed) => Some(parsed),
@@ -278,6 +271,7 @@ fn default_config_path() -> Option<PathBuf> {
     })
 }
 
+/// Keep Shift/Ctrl/Alt/Super modifiers and drop the rest
 fn normalize_modifiers(modifiers: KeyModifiers) -> KeyModifiers {
     modifiers
         & (KeyModifiers::SHIFT | KeyModifiers::CONTROL | KeyModifiers::ALT | KeyModifiers::SUPER)
@@ -299,6 +293,7 @@ impl ConfigFile {
     }
 }
 
+/// Key binding configuration loaded from file
 #[derive(Debug, Default, Deserialize)]
 struct KeyBindingConfig {
     quit: Option<Vec<String>>,
@@ -314,6 +309,7 @@ struct KeyBindingConfig {
     open_jump_prompt: Option<Vec<String>>,
 }
 
+/// Bind an action to the provided key entries
 fn bind_action(
     bindings: &mut Vec<(Binding, Action)>,
     labels: &mut HashMap<Action, Vec<Binding>>,
@@ -322,17 +318,26 @@ fn bind_action(
     fallback: &[&str],
 ) {
     let tokens = entries.unwrap_or_else(|| fallback.iter().map(|s| s.to_string()).collect());
+    let mut is_add = false;
     for token in tokens {
         match parse_binding(&token) {
             Some(binding) => {
                 labels.entry(action).or_default().push(binding.clone());
                 bindings.push((binding, action));
+                is_add = true;
             }
             None => eprintln!("moli: unknown key binding token '{token}'"),
         }
     }
+    if !is_add {
+        eprintln!(
+            "moli: no key bindings configured for {:?}; action disabled",
+            action
+        );
+    }
 }
 
+/// Parse a key binding sequence from a string
 fn parse_binding(raw: &str) -> Option<Binding> {
     let mut sequence = Vec::new();
     let mut modifiers = KeyModifiers::empty();
@@ -362,6 +367,7 @@ fn parse_binding(raw: &str) -> Option<Binding> {
     }
 }
 
+/// Parse modifier keys such as Ctrl/Shift
 fn parse_modifier(token: &str) -> Option<KeyModifiers> {
     match token.to_ascii_lowercase().as_str() {
         "ctrl" | "control" => Some(KeyModifiers::CONTROL),
@@ -372,13 +378,15 @@ fn parse_modifier(token: &str) -> Option<KeyModifiers> {
     }
 }
 
+/// Parse an individual key code
 fn parse_key_code(raw: &str) -> Option<KeyCode> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return None;
     }
-    if trimmed.chars().count() == 1 {
-        return trimmed.chars().next().map(KeyCode::Char);
+    let mut chars = trimmed.chars();
+    if let (Some(ch), None) = (chars.next(), chars.next()) {
+        return Some(KeyCode::Char(ch));
     }
     let lowered = trimmed.to_ascii_lowercase();
     match lowered.as_str() {
@@ -401,6 +409,7 @@ fn parse_key_code(raw: &str) -> Option<KeyCode> {
     }
 }
 
+/// Parse function keys F{1-12}
 fn parse_function_key(token: &str) -> Option<KeyCode> {
     if let Some(rest) = token.strip_prefix('f')
         && let Ok(num) = rest.parse::<u8>()
@@ -410,7 +419,8 @@ fn parse_function_key(token: &str) -> Option<KeyCode> {
     None
 }
 
-fn key_code_label(code: KeyCode) -> String {
+/// Map key codes to human-readable labels
+fn get_key_code_label(code: KeyCode) -> String {
     match code {
         KeyCode::Char(' ') => "Space".to_string(),
         KeyCode::Char(ch) => ch.to_string(),

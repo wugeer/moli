@@ -2,6 +2,8 @@ use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime};
 
 use crate::lunar;
 
+/// Holiday categories
+/// Distinguishes between statutory, traditional, and other holiday types
 #[derive(Clone, Copy, Debug)]
 pub enum HolidayCategory {
     Statutory,
@@ -19,6 +21,8 @@ impl HolidayCategory {
     }
 }
 
+/// Detailed holiday information
+/// Includes the holiday name, category, and a short note
 #[derive(Clone, Copy, Debug)]
 pub struct HolidayInfo {
     pub name: &'static str,
@@ -26,6 +30,8 @@ pub struct HolidayInfo {
     pub note: &'static str,
 }
 
+/// A holiday tied to a specific solar date
+/// Stores the holiday plus its Gregorian month and day
 #[derive(Clone, Copy, Debug)]
 struct SolarHoliday {
     info: HolidayInfo,
@@ -165,10 +171,10 @@ impl App {
     pub fn new() -> Self {
         let today = Local::now().date_naive();
         Self {
+            today,
             view_year: today.year(),
             view_month: today.month(),
             selected_day: today.day(),
-            today,
             jump_prompt: None,
         }
     }
@@ -190,6 +196,7 @@ impl App {
             .expect("invalid selected date")
     }
 
+    /// Build the month view where each row is a week covering the month
     pub fn month_rows(&self) -> Vec<Vec<DayCell>> {
         let first_day = NaiveDate::from_ymd_opt(self.view_year, self.view_month, 1).unwrap();
         let offset = first_day.weekday().num_days_from_monday() as i64;
@@ -224,14 +231,17 @@ impl App {
         rows
     }
 
+    /// Get the lunar date for the selected Gregorian date
     pub fn selected_lunar(&self) -> Option<lunar::LunarInfo> {
         lunar::solar_to_lunar(self.selected_date())
     }
 
+    /// Get the solar term name for the selected Gregorian date
     pub fn selected_solar_term(&self) -> Option<&'static str> {
         solar_term_name(self.selected_date())
     }
 
+    /// Get the holiday info for the selected date
     pub fn selected_holiday(&self) -> Option<HolidayInfo> {
         let date = self.selected_date();
         let lunar = lunar::solar_to_lunar(date);
@@ -239,11 +249,13 @@ impl App {
         holiday_for(date, lunar.as_ref(), solar_term)
     }
 
+    /// Get lunar info for the first day of the viewed month
     pub fn month_anchor_lunar(&self) -> Option<lunar::LunarInfo> {
         let anchor = NaiveDate::from_ymd_opt(self.view_year, self.view_month, 1).unwrap();
         lunar::solar_to_lunar(anchor)
     }
 
+    /// Move view to the previous month
     pub fn prev_month(&mut self) {
         if self.view_month == 1 {
             self.view_month = 12;
@@ -251,10 +263,13 @@ impl App {
         } else {
             self.view_month -= 1;
         }
+        // Clamp the year within supported bounds
         self.constrain_year();
+        // Clamp the day within the target month
         self.sync_day();
     }
 
+    /// Move view to the next month
     pub fn next_month(&mut self) {
         if self.view_month == 12 {
             self.view_month = 1;
@@ -266,24 +281,28 @@ impl App {
         self.sync_day();
     }
 
+    /// Move view to the previous year
     pub fn prev_year(&mut self) {
         self.view_year -= 1;
         self.constrain_year();
         self.sync_day();
     }
 
+    /// Move view to the next year
     pub fn next_year(&mut self) {
         self.view_year += 1;
         self.constrain_year();
         self.sync_day();
     }
 
+    /// Jump back to today's date
     pub fn back_to_today(&mut self) {
         self.view_year = self.today.year();
         self.view_month = self.today.month();
         self.selected_day = self.today.day();
     }
 
+    /// Move the selection by a number of days relative to the current selection
     pub fn move_selection(&mut self, delta_days: i64) {
         let current = self.selected_date();
         if let Some(mut new_date) = current.checked_add_signed(Duration::days(delta_days)) {
@@ -300,6 +319,7 @@ impl App {
         }
     }
 
+    /// If the previous day exceeds the new month's max day, clamp it
     fn sync_day(&mut self) {
         let max_day = days_in_month(self.view_year, self.view_month);
         if self.selected_day > max_day {
@@ -307,6 +327,7 @@ impl App {
         }
     }
 
+    /// Clamp the view year within the supported min and max
     fn constrain_year(&mut self) {
         let min_year = lunar::MIN_YEAR;
         let max_year = lunar::max_supported_year();
@@ -317,6 +338,7 @@ impl App {
         }
     }
 
+    /// Whether the jump prompt should be shown
     pub fn jump_prompt_active(&self) -> bool {
         self.jump_prompt.is_some()
     }
@@ -336,6 +358,7 @@ impl App {
         self.jump_prompt = None;
     }
 
+    /// Accept input while the jump prompt is open
     pub fn push_jump_input(&mut self, ch: char) {
         if let Some(prompt) = self.jump_prompt.as_mut() {
             if prompt.buffer.len() >= 16 {
@@ -348,6 +371,7 @@ impl App {
         }
     }
 
+    /// Remove the last character from the jump prompt input
     pub fn pop_jump_input(&mut self) {
         if let Some(prompt) = self.jump_prompt.as_mut() {
             prompt.buffer.pop();
@@ -396,6 +420,7 @@ fn parse_jump_input(input: &str) -> Option<NaiveDate> {
     NaiveDate::from_ymd_opt(year, month, day)
 }
 
+/// Calculate days in a month by subtracting the first day of this month from the first day of next month
 fn days_in_month(year: i32, month: u32) -> u32 {
     let first = NaiveDate::from_ymd_opt(year, month, 1).unwrap();
     let next = match month {
