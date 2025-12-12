@@ -78,4 +78,4 @@ cargo test
 如需共享键位或节日数据，也可以附上说明文件，便于其他终端用户快速复用。
 
 ## License
-MoLi 以 MIT License 授权；详见仓库中的 `LICENSE` 文件。
+MoLi 以 Apache License v2 授权；详见仓库中的 `LICENSE` 文件。
