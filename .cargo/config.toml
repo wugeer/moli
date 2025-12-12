@@ -1,0 +1,7 @@
+[target.aarch64-unknown-linux-gnu]
+linker = "aarch64-linux-gnu-gcc"
+ar = "aarch64-linux-gnu-ar"
+
+[target.aarch64-unknown-linux-musl]
+# Use the bundled LLD to avoid relying on a system-level musl cross toolchain.
+linker = "rust-lld"
